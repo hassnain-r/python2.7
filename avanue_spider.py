@@ -8,7 +8,6 @@ from w3lib.url import add_or_replace_parameter, url_query_parameter
 
 class AvenueSpider(CrawlSpider):
     name = "avenue_spider"
-    currency_constant = ""
     color_ids_regex = 'swatch/\d+.(.+)-SW.jpg'
     color_ids_css = 'ul.Color a ::attr(style)'
     color_url_api = "https://www.avenue.com/en_US/product-variation?"
@@ -39,11 +38,10 @@ class AvenueSpider(CrawlSpider):
                           dont_filter=True, callback=self.parse_start_page)
 
     def parse_start_page(self, response):
-        for raw_currency in response.headers.getlist('Set-Cookie'):
-            if "FiftyOne_Akamai" in raw_currency:
-                self.currency_constant += raw_currency.split('|')[2]
-
-        yield Request(url=self.start_urls[0], callback=self.parse_categories)
+        raw_constant = ''.join(response.headers.getlist('Set-Cookie'))
+        currency_constant = re.findall('\d+\.?\d+', raw_constant)[0]
+        yield Request(url=self.start_urls[0], meta={"currency_constant": currency_constant},
+                      callback=self.parse_categories)
 
     def parse_categories(self, response):
         sub_categories = response.css("ul.level-3 li a ::attr(href)").extract()
@@ -51,21 +49,22 @@ class AvenueSpider(CrawlSpider):
 
             if sub_category in self.deny_url:
                 continue
-            yield Request(url=sub_category, callback=self.parse_pagination)
+            yield Request(url=sub_category, meta=response.meta.copy(),
+                          callback=self.parse_pagination)
 
     def parse_pagination(self, response):
         product_urls = response.css('.product-image a ::attr(href)').extract()
         for product_url in product_urls:
-            yield Request(url=product_url, callback=self.parse_product)
+            yield Request(url=product_url, meta=response.meta.copy(), callback=self.parse_product)
 
         raw_url = response.css('.infinite-scroll-placeholder ::attr(data-grid-url)').extract_first()
         if raw_url:
             yield Request(url=HTMLParser().unescape(raw_url), callback=self.parse_pagination)
 
     def parse_product(self, response):
-        raw_details = self.raw_details(response)
         garment = {}
-
+        raw_details = self.raw_details(response)
+        garment["currency_constant"] = response.meta["currency_constant"] 
         pid = self.product_id(response)
         garment["skus"] = {}
         garment["price"] = raw_details["product_sales_price_ave"]
@@ -131,7 +130,7 @@ class AvenueSpider(CrawlSpider):
         size = response.css(size_css).extract_first().strip()
         color = response.css('div.selected-value ::text').extract_first().strip()
         price, previous_price, currency = float(garment["price"]), float(garment["previous_price"]), garment["currency"]
-        currency_constant = float(self.currency_constant)
+        currency_constant = float(garment["currency_constant"])
 
         sku = {
             "size": size,

@@ -17,7 +17,7 @@ class AvenueSpider(CrawlSpider):
     country_code_api = "https://www.avenue.com/on/demandware.store/Sites-Avenue-Site/en_US/51Integration-SetCountry?"
 
     deny_url = ["/en_US/plus-size-clothing/tops-knit-tops/#prefn1=size&prefv1=30%7C32&hcgid=tops-knit-tops"]
-
+    
     def __init__(self, country="", currency="", **kwargs):
         super(AvenueSpider, self).__init__(**kwargs)
         self.start_urls = [
@@ -33,9 +33,10 @@ class AvenueSpider(CrawlSpider):
         'DOWNLOAD_DELAY': 2.5
     }
 
-    def start_requests(self):
-        yield Request(url="{}country={}&currency={}".format(self.country_code_api, self.country, self.currency),
-                      callback=self.parse_start_page)
+    def parse(self, response):
+        for country, currency in zip(self.country.split(','), self.currency.split(',')):
+            yield Request(url="{}country={}&currency={}".format(self.country_code_api, country, currency),
+                          dont_filter=True, callback=self.parse_start_page)
 
     def parse_start_page(self, response):
         for raw_currency in response.headers.getlist('Set-Cookie'):

@@ -13,15 +13,16 @@ class NeimanMarcusSpider(CrawlSpider):
     colour_size_api = "https://www.neimanmarcus.com/en-gb/product.service"
     image_api = "https://neimanmarcus.scene7.com/is/image/NeimanMarcus/"
     pagination_api = "https://www.neimanmarcus.com/en-gb/category.service"
+    start_urls = ["https://www.neimanmarcus.com/"]
 
-    def __init__(self, country="", currency="", **kwargs):
-        super(NeimanMarcusSpider, self).__init__(**kwargs)
-        self.start_urls = [
-            'https://www.neimanmarcus.com/',
-        ]
-
-        self.country = "%s" % country
-        self.currency = "%s" % currency
+    # def __init__(self, country="", currency="", **kwargs):
+    #     super(NeimanMarcusSpider, self).__init__(**kwargs)
+    #     self.start_urls = [
+    #         'https://www.neimanmarcus.com/',
+    #     ]
+    #
+    #     self.country = "%s" % country
+    #     self.currency = "%s" % currency
 
     custom_settings = {
         'USER_AGENT': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)'
@@ -34,16 +35,16 @@ class NeimanMarcusSpider(CrawlSpider):
         ("Women", "women"),
         ("Kids", "Unisex-kids")
     ]
+    #
+    # def parse(self, response):
+    #     for country, currency in zip(self.country.split(','), self.currency.split(',')):
+    #         form_data = {
+    #             "country": country,
+    #             "currency": currency,
+    #             }
+    #         yield FormRequest(url=self.country_api, formdata=form_data, callback=self.parse_homepage)
 
     def parse(self, response):
-        for country, currency in zip(self.country.split(','), self.currency.split(',')):
-            form_data = {
-                "country": country,
-                "currency": currency,
-                }
-            yield FormRequest(url=self.country_api, formdata=form_data, callback=self.parse_homepage)
-
-    def parse_homepage(self, response):
         raw_categories = response.css('#state ::text').extract_first()
         categories = re.findall('url":"(.*?)"', raw_categories)
         for category in categories:
@@ -51,16 +52,17 @@ class NeimanMarcusSpider(CrawlSpider):
 
     def parse_categories(self, response):
         max_page_num = response.css('li.pageOffset ::text').extract()
-        request_data = self.request_data(response)
-        for pageoffset in range(1, int(max_page_num[-2]) + 1):
-            request_data["pageOffset"] = pageoffset
-            encoded_data = base64.b64encode(json.dumps({'GenericSearchReq': request_data}))
-            data = '$b64$' + re.sub('\$+', '=', encoded_data)
-            form_data = {
-                "data": data,
-                "service": "getCategoryGrid"
-            }
-            yield FormRequest(url=self.pagination_api, formdata=form_data, callback=self.parse_pagination)
+        if max_page_num:
+            request_data = self.request_data(response)
+            for pageoffset in range(1, int(max_page_num[-2]) + 1):
+                request_data["pageOffset"] = pageoffset
+                encoded_data = base64.b64encode(json.dumps({'GenericSearchReq': request_data}))
+                data = '$b64$' + re.sub('\$+', '=', encoded_data)
+                form_data = {
+                    "data": data,
+                    "service": "getCategoryGrid"
+                }
+                yield FormRequest(url=self.pagination_api, formdata=form_data, callback=self.parse_pagination)
 
     def parse_pagination(self, response):
         product_urls_text = json.loads(response.text)["GenericSearchResp"]["productResults"]
@@ -133,8 +135,14 @@ class NeimanMarcusSpider(CrawlSpider):
 
         for product_skus in raw_skus["skus"]:
             sku = common_sku. copy()
-            sku["colour"] = product_skus["color"].split('?')[0]
-            sku["size"] = product_skus["size"]
+            colour = product_skus.get("color")
+
+            if colour:
+                sku["colour"] = colour.split('?')[0]
+            size = product_skus.get("size")
+
+            if size:
+                sku["size"] = size
 
             if product_skus["status"] != "In Stock":
                 sku["out_of_stock"] = True

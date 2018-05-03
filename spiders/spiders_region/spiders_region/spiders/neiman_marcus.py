@@ -13,16 +13,15 @@ class NeimanMarcusSpider(CrawlSpider):
     colour_size_api = "https://www.neimanmarcus.com/en-gb/product.service"
     image_api = "https://neimanmarcus.scene7.com/is/image/NeimanMarcus/"
     pagination_api = "https://www.neimanmarcus.com/en-gb/category.service"
-    start_urls = ["https://www.neimanmarcus.com/"]
 
-    # def __init__(self, country="", currency="", **kwargs):
-    #     super(NeimanMarcusSpider, self).__init__(**kwargs)
-    #     self.start_urls = [
-    #         'https://www.neimanmarcus.com/',
-    #     ]
-    #
-    #     self.country = "%s" % country
-    #     self.currency = "%s" % currency
+    def __init__(self, country="", currency="", **kwargs):
+        super(NeimanMarcusSpider, self).__init__(**kwargs)
+        self.start_urls = [
+            'https://www.neimanmarcus.com/',
+        ]
+
+        self.country = "%s" % country
+        self.currency = "%s" % currency
 
     custom_settings = {
         'USER_AGENT': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)'
@@ -35,16 +34,16 @@ class NeimanMarcusSpider(CrawlSpider):
         ("Women", "women"),
         ("Kids", "Unisex-kids")
     ]
-    #
-    # def parse(self, response):
-    #     for country, currency in zip(self.country.split(','), self.currency.split(',')):
-    #         form_data = {
-    #             "country": country,
-    #             "currency": currency,
-    #             }
-    #         yield FormRequest(url=self.country_api, formdata=form_data, callback=self.parse_homepage)
 
     def parse(self, response):
+        for country, currency in zip(self.country.split(','), self.currency.split(',')):
+            form_data = {
+                "country": country,
+                "currency": currency,
+                }
+            yield FormRequest(url=self.country_api, formdata=form_data, callback=self.parse_homepage)
+
+    def parse_homepage(self, response):
         raw_categories = response.css('#state ::text').extract_first()
         categories = re.findall('url":"(.*?)"', raw_categories)
         for category in categories:

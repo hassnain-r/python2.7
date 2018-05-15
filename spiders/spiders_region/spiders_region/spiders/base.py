@@ -14,7 +14,7 @@ class DemandwareCss(object):
     variant_url_css = 'ul.range .swatchanchor ::attr(href)'
     variant_text_css = 'ul.range li.selected a ::text'
     stock_availability_css = "ul.size .unselectable"
-    p_price_css = '//span[contains(@class, "standard")]/text()'
+    p_price_xpath = '//span[contains(@class, "standard")]/text()'
     sale_price_css = '//span[contains(@class, "sale")]/text()'
 
     name_css = 'h1.product-name ::text'
@@ -32,19 +32,31 @@ class DemandwareCss(object):
 class DemandwareBaseSpider(CrawlSpider):
     custom_css = {}
 
-    def __init__(self):
+    def __init__(self, country="", currency="", **kwargs):
         self.css = DemandwareCss()
         self.css.__dict__.update(self.custom_css)
 
+        super(DemandwareBaseSpider, self).__init__(**kwargs)
+        self.country = "%s" % country
+        self.currency = "%s" % currency
+
     def parse(self, response):
+        yield Request(url="{}country={}&currency={}".format(self.country_code_api, self.country, self.currency),
+                      dont_filter=True, callback=self.parse_homepage)
+
+    def parse_homepage(self, response):
+        yield Request(url=self.start_urls[0], callback=self.parse_categories)
+
+    def parse_categories(self, response):
         categories = response.xpath(self.css.categories_xpath).extract()
         for category in categories:
-            yield Request(url=response.urljoin(category), callback=self.parse_pagination)
+            yield Request(url=response.urljoin(category), meta=response.meta.copy(),
+                          callback=self.parse_pagination)
 
     def parse_pagination(self, response):
         product_urls = response.xpath(self.css.product_urls_xpath).extract()
         for product_url in product_urls:
-            yield Request(url=response.urljoin(product_url), callback=self.parse_product)
+            yield Request(url=response.urljoin(product_url), meta=response.meta.copy(), callback=self.parse_product)
         infinite_scroll = response.css(self.css.infinite_scroll_css).extract_first()
         next_page = response.xpath(self.css.next_page_css).extract_first()
 
@@ -57,14 +69,18 @@ class DemandwareBaseSpider(CrawlSpider):
     def parse_product(self, response):
         garment = {}
         pid = self.product_id(response)
-        garment["skus"] = {}
-        garment["image_urls"] = []
+
+        if not pid:
+            return
+        garment["currency_constant"] = response.meta.get("currency_constant")
+        garment["previous_price"] = self.raw_details(response)
         garment["product_id"] = pid
         garment['url'] = self.product_url(response)
         garment['original_url'] = response.url
         garment["product_name"] = self.product_name(response)
         garment["product_brand"] = self.product_brand(response)
         garment["product_category"] = self.product_category(response)
+        garment["product_description"] = self.product_description(response)
         garment["skus"] = {}
         garment["image_urls"] = []
         garment["requests"] = []
@@ -102,7 +118,7 @@ class DemandwareBaseSpider(CrawlSpider):
             garment["requests"].extend(self.variant_requests(variant_urls, garment))
 
         else:
-            garment["skus"].update(self.skus(response))
+            garment["skus"].update(self.skus(response, garment))
         return self.next_request_or_garment(garment)
 
     def variant_requests(self, variant_urls, garment):
@@ -111,18 +127,23 @@ class DemandwareBaseSpider(CrawlSpider):
 
     def parse_variants(self, response):
         garment = response.meta["garment"]
-        garment["skus"].update(self.skus(response))
+        garment["skus"].update(self.skus(response, garment))
 
         return self.next_request_or_garment(garment)
 
-    def skus(self, response):
+    def skus(self, response, garment):
         skus = {}
         color = self.clean(response.css(self.css.colour_text_css).extract())[0]
         out_of_stock = response.css(self.css.stock_availability_css)
         raw_size = response.css(self.css.size_text_css).extract_first()
         price = self.clean(response.xpath(self.css.sale_price_css).extract_first())
-        previous_price = response.xpath(self.css.p_price_css).extract_first()
-        sku = {"price": price, "previous_price": previous_price, "color": color}
+        p_price = self.clean(response.xpath(self.css.p_price_xpath).extract_first())
+        sku = {"price": price, "color": color}
+        if p_price:
+            sku["previous_price"] = p_price
+
+        else:
+            sku["previous_price"] = garment["previous_price"]
 
         if raw_size:
             sku["size"] = self.clean(raw_size)
@@ -184,10 +205,18 @@ class DemandwareBaseSpider(CrawlSpider):
 
         return garment
 
+    def raw_details(self, response):
+        return response.xpath(self.css.p_price_xpath).extract_first()
+
+    def product_description(self, response):
+        return []
+
     def clean(self, response):
+        raw_text = response
         if isinstance(response, list):
-            cleaned_list = [value.strip() for value in response]
+            cleaned_list = [value.strip() for value in response if value]
 
             return [item for item in cleaned_list if item]
-        
-        return response.strip()
+
+        if raw_text:
+            return response.strip()
